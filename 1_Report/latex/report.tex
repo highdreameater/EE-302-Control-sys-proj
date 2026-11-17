@@ -1,0 +1,609 @@
+\documentclass[conference]{IEEEtran}
+% EE302 PS-3 report: battery monitoring and passive/active cell balancing.
+% Compile with pdfLaTeX (e.g. upload this folder to Overleaf). Figures live in figures/.
+% A figure file that is missing is drawn as a labelled box, so the document always compiles.
+% Red [..] marks are items that still need real data or names.
+
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{figures/}}
+
+\newcommand{\tbd}[1]{\textcolor{red}{\textbf{[#1]}}}
+% \figslot{file}{width}{placeholder height}{description}
+\newcommand{\figslot}[4]{%
+  \IfFileExists{figures/#1}{\includegraphics[width=#2]{#1}}{%
+    \fbox{\parbox[c][#3][c]{\dimexpr#2-2\fboxsep-2\fboxrule\relax}{\centering\small\textcolor{gray}{%
+    \textbf{Image placeholder}\\[2pt] #4\\[2pt] \texttt{\detokenize{figures/#1}}}}}}}
+
+\begin{document}
+
+\title{Battery Monitoring and Passive and Active\\ Cell Balancing of a Four-Cell Li-ion Pack:\\ Simulation and Arduino Hardware}
+
+\author{
+\IEEEauthorblockN{Vidhi Chandak}
+\IEEEauthorblockA{B24356\\IIT Mandi}
+\and
+\IEEEauthorblockN{Vitthal Seth}
+\IEEEauthorblockA{B24357\\IIT Mandi}
+\and
+\IEEEauthorblockN{Shashwat Saha}
+\IEEEauthorblockA{B23292\\IIT Mandi}
+\and
+\IEEEauthorblockN{Rishi Bansal}
+\IEEEauthorblockA{B23288\\IIT Mandi}
+}
+
+\maketitle
+
+\begin{abstract}
+We design, simulate and build a battery management system (BMS) for four series 18650 Li-ion cells on an Arduino
+Mega 2560 with a 16-bit ADS1115 converter and four DS18B20 sensors. One controller provides monitoring, passive
+balancing with relay-switched 47\,$\Omega$ resistors, active balancing with a relay-switched capacitor ladder,
+latched fault handling, alerts and a manual stop, selected over a serial link. A Simscape model with a verified
+averaged switched-capacitor stage predicted that both methods reduce a 107\,mV spread to about 11\,mV, passive
+balancing in 1.55\,h and active balancing in 1.05\,h. On hardware, four runs were recorded. In a 36\,min passive run the controller bled the correct cells at about 85\,mA, removing 34 and 30\,mAh from the
+two highest cells; their rested voltages fell by 14.1 and 23.1\,mV, against 41\,mV expected in total from the
+removed charge, with 0.31\,Wh dissipated and no measurable cell heating. In three
+active runs (2.5\,h in total) no transfer was measurable: the relays shuttle 470\,$\mu$F capacitors about once
+per second, which moves 20--60\,$\mu$A per pair. The fault logic caught an open sense wire, and the warning logic
+caught later intermittent contacts. Calibration against a multimeter reduced the channel error from up to 48\,mV
+(41\,mV RMS) to $\pm1$\,mV. From the measured voltages we estimate 6.7\,h for passive balancing of the
+pack and over 26\,000\,h for the present active stage, reduced to 24--196\,h by MOSFET switching at 1\,kHz. Code, raw data, schematics and graphs:
+\url{https://github.com/highdreameater/EE-302-Control-sys-proj}.
+\end{abstract}
+
+\begin{IEEEkeywords}
+battery management system, cell balancing, switched-capacitor equaliser, Li-ion, Arduino, fault detection
+\end{IEEEkeywords}
+
+\section{Introduction}
+In a series pack, differences in capacity, internal resistance and self-discharge make the cells drift apart in
+state of charge (SOC). The pack is then limited by its weakest cell: discharge stops when the lowest cell reaches
+cut-off and charge stops when the highest cell reaches its limit. \emph{Passive} balancing dissipates the excess
+charge of the high cells in resistors. \emph{Active} balancing moves charge between cells with capacitors or
+inductors~\cite{daowd2011,gallardo2014}. Switched-capacitor equalisers are attractive for small packs because they
+need no magnetic components~\cite{gallardo2014,lim2025}.
+
+Following Problem Statement~3, the objectives are to (i) monitor the voltage and temperature of a four-cell pack
+and calibrate the measurement, (ii) implement monitoring, passive, active, fault and stop modes with alerts in one
+controller, (iii) implement resistor-based passive and switched-capacitor active balancing, (iv) compare the
+methods in simulation and on hardware, and (v) estimate how long each method needs to balance the pack.
+
+\begin{figure}[t]
+\centering
+\figslot{block_diagram.png}{\columnwidth}{4.2cm}{System block diagram}
+\caption{System overview. The PC selects the mode over USB serial and records the log.}
+\label{fig:block}
+\end{figure}
+
+\section{Hardware Design}
+
+\subsection{Controller, sensing and pack}
+The pack is four 18650 cells (about 2600\,mAh, 4.2\,V full, 2.8\,V cut-off) in series at about 15.7--15.9\,V. An
+Arduino Mega 2560 runs the controller every 1\,s and logs one 22-column CSV row per second at 115\,200\,baud
+(Figs.~\ref{fig:block} and~\ref{fig:photo}). Table~\ref{tab:io} lists the channels.
+
+Each stack node $j$ reaches the ADS1115~\cite{ads1115} through a divider of $R_\text{top}=33$\,k$\Omega$ and
+$R_\text{bot}=11$\,k$\Omega$,
+\begin{equation}
+V_{\text{node},j} = k\,V_{\text{ADC},j}, \qquad k=\frac{R_\text{top}+R_\text{bot}}{R_\text{bot}}=4.0,
+\label{eq:div}
+\end{equation}
+and the cell voltages follow from one single-ended and three differential conversions,
+\begin{equation}
+\begin{aligned}
+v_1 &= k V_{A0}, & v_2 &= k\,(V_{A1}-V_{A0}),\\
+v_3 &= k\,(V_{A3}-V_{A1}), & v_4 &= k\,(V_{A2}-V_{A3}).
+\end{aligned}
+\label{eq:cells}
+\end{equation}
+At $\pm2.048$\,V full scale the resolution is 62.5\,$\mu$V, or 0.25\,mV per cell. Readings are averaged over four
+conversions. Each cell has a DS18B20 (12-bit, 0.0625\,$^\circ$C) on one 1-Wire bus; conversions are started at the
+end of a period and read at the next, so the 750\,ms conversion does not delay the loop.
+
+\begin{table}[t]
+\caption{I/O channels and scalings}
+\label{tab:io}
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Signal & Pin / channel & Note \\
+\midrule
+Cell 1 & A0 (single-ended) & $\times4.0$ \\
+Cell 2 & A1 $-$ A0 & $\times4.0$ \\
+Cell 3 & A3 $-$ A1 & $\times4.0$ \\
+Cell 4 & A2 $-$ A3 & $\times4.0$ \\
+Temperatures $T_1$--$T_4$ & D2, 1-Wire & 0.0625\,$^\circ$C/LSB \\
+Bleed relays K1--K4 & D22--D25 & active-LOW \\
+Capacitor relays K5--K8 & D26--D29 & active-LOW \\
+Fault LED / buzzer & D13 / D8 & solid = fault \\
+Alert LED & D9 & on for any alert \\
+Stop push-button & D3 & to GND, pull-up \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figslot{photo_hardware.jpg}{\columnwidth}{5cm}{Photo of the assembled board}
+\caption{Assembled hardware.}
+\label{fig:photo}
+\end{figure}
+
+\subsection{Passive balancing stage}
+Each cell has a 47\,$\Omega$, 2\,W resistor switched by a relay (Fig.~\ref{fig:schpass}). At 4.0\,V
+\begin{equation}
+I_b=\frac{v_i}{R_b}\approx85\ \text{mA},\qquad P_b=\frac{v_i^2}{R_b}\approx0.34\ \text{W}.
+\label{eq:bleed}
+\end{equation}
+
+\begin{figure}[t]
+\centering
+\figslot{schematic_passive.png}{\columnwidth}{6cm}{Measurement and passive balancing schematic}
+\caption{Measurement dividers and relay-switched bleed resistors.}
+\label{fig:schpass}
+\end{figure}
+
+\subsection{Active balancing stage}
+The active stage is an adjacent-cell switched-capacitor ladder~\cite{pascual1997}: three 470\,$\mu$F, 50\,V
+capacitors, each with a 4.7\,$\Omega$ series resistor, switched by four SPDT relays (Fig.~\ref{fig:schact}).
+Released, the capacitors sit across cells 1--3; energised, across cells 2--4. Each relay acts as a half-bridge
+across one cell. One shuttle is 500\,ms in each position.
+
+\begin{figure}[t]
+\centering
+\figslot{schematic_active.png}{\columnwidth}{6cm}{Relay-switched capacitor ladder schematic}
+\caption{Relay-switched capacitor ladder.}
+\label{fig:schact}
+\end{figure}
+
+\subsection{Safety and indication}
+Every output is switched off and the state is latched on cell over-voltage (4.35\,V), under-voltage (2.80\,V),
+over-temperature (55\,$^\circ$C), two consecutive failed temperature reads, the serial \texttt{stop} command or the
+push-button. A latched fault is cleared only by \texttt{reset} once all readings are back in range. Alerts (status
+WARN) are raised for a cell below 3.30\,V in any mode, a temperature above 45\,$^\circ$C, a rested reading that
+jumps by more than 30\,mV (a loose sense wire), and, in active mode, neighbouring cells more than 300\,mV apart;
+balancing pauses during an alert. A fault gives a solid LED and a continuous buzzer; an alert gives a blinking LED,
+a separate alert light and, for low voltage, a short chirp every 5\,s. No cell was charged during the trials.
+A capacitor test emulator was not used. The protection and mode logic was instead verified in the Simscape model
+(manual stop, over-temperature and low-voltage cases) and in a host simulation of the firmware (low-voltage alert,
+stop, reset and mode changes) before the pack was connected, and the fault detection was then exercised on the
+pack itself (Section~\ref{sec:hw}).
+
+\section{Modelling and Simulation}
+\label{sec:sim}
+
+\subsection{Cell and equaliser models}
+Each cell is a table-based equivalent circuit~\cite{plett2015},
+\begin{equation}
+v_i = V_\text{oc}(s_i) - i_i R_0(s_i), \qquad \dot s_i = -\frac{i_i}{3600\,C_n},
+\label{eq:cell}
+\end{equation}
+with SOC $s_i$, discharge current $i_i$, capacity $C_n$ in Ah, $R_0=33$--47\,m$\Omega$ and $V_\text{oc}$
+interpolated from 3.0/3.4/3.6/3.7/3.8/4.0/4.2\,V at 0/10/25/50/75/90/100\,\% SOC.
+
+A flying capacitor $C$ alternately connected across two cells that differ by $\Delta V_k$ carries $q=C\Delta V_k$
+per cycle. With switching frequency $f$, conduction fraction $D$ per position and loop resistance $R$, the pair
+behaves as~\cite{seeman2008,benyaakov2012}
+\begin{equation}
+R_\text{eq}=\frac{1}{fC}\,\frac{1+e^{-x}}{1-e^{-x}},\qquad x=\frac{D}{fRC},
+\label{eq:req}
+\end{equation}
+so that the average pair current is
+\begin{equation}
+I_k=\frac{\Delta V_k}{R_\text{eq}}, \qquad \Delta V_k=v_k-v_{k+1}.
+\label{eq:ipair}
+\end{equation}
+Equation~\eqref{eq:req} tends to $1/(fC)$ for slow switching and to $2R/D$ for fast switching; it agreed with a
+switch-level Simscape model to within 0.3\,\% from 10\,Hz to 100\,kHz (Fig.~\ref{fig:simsc}).
+
+\subsection{Simulink implementation and results}
+The model (Fig.~\ref{fig:simulink}) is generated by a MATLAB script and contains the cells with thermal ports,
+bleed branches with resistor temperature, the averaged equaliser, a measurement model (quantisation, noise, gain
+and offset error) and the controller as a MATLAB Function block written to translate line by line into the Arduino
+loop. From 80/65/75/70\,\% SOC (107\,mV) with 2.5\,Ah cells, 22\,$\Omega$ bleed resistors and a 2.2\,mF capacitor
+switched at 2\,kHz, both methods reached about 11\,mV (Table~\ref{tab:sim}, Fig.~\ref{fig:simcmp}). Passive
+balancing brought every cell down to the lowest; active balancing moved the cells towards the mean and left 10\,\%
+more deliverable charge. A resistor sweep gave 3.21\,h and 46\,$^\circ$C for 47\,$\Omega$, the value fitted on the
+hardware.
+
+\begin{figure*}[t]
+\centering
+\figslot{simulink_model.png}{0.9\textwidth}{6cm}{Simulink/Simscape model screenshot}
+\caption{Simulink model of the four-cell pack and BMS (logging blocks omitted).}
+\label{fig:simulink}
+\end{figure*}
+
+\begin{table}[t]
+\caption{Simulated comparison (four runs per method)}
+\label{tab:sim}
+\centering
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Metric & None & Passive & Active \\
+\midrule
+Spread [mV] & 107$\to$107 & 107$\to$11 & 107$\to$11 \\
+Time to $\le$20\,mV [h] & -- & $1.55\pm0.02$ & $1.05\pm0.02$ \\
+Energy lost [Wh] & 0 & $2.05\pm0.04$ & 0.007 \\
+Peak resistor $T$ [$^\circ$C] & 25 & 69 & 25 \\
+Deliverable charge [Ah] & 1.62 & 1.62 & 1.78 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figslot{sim_method_comparison.png}{\columnwidth}{5cm}{Simulated comparison of the three cases}
+\caption{Simulated comparison from identical initial conditions.}
+\label{fig:simcmp}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\figslot{sim_sc_characterisation.png}{\columnwidth}{5cm}{Equivalent resistance against switching frequency}
+\caption{Equivalent resistance of one capacitor stage: switch-level model and \eqref{eq:req}.}
+\label{fig:simsc}
+\end{figure}
+
+\section{Controller Design}
+The firmware starts in OFF (monitoring only); \texttt{p}, \texttt{a} and \texttt{o} select passive, active and off.
+Every mode change switches all outputs off and begins with a rest (Fig.~\ref{fig:flow}).
+
+\textbf{Measure-at-rest cycle.} While a cell carries current, its reading is shifted by the current through the
+cell and wiring resistance. Each mode therefore alternates RUN and REST, 10\,s/5\,s for passive and 30\,s/5\,s for
+active balancing, and only readings taken with every output off for at least 3\,s are used for decisions.
+
+\textbf{Decision rules.} With $v_\text{min}=\min_i v_i$, passive balancing selects cell $i$ with hysteresis,
+\begin{equation}
+b_i \leftarrow
+\begin{cases}
+1, & v_i - v_\text{min} > \Delta_\text{on},\\
+0, & v_i - v_\text{min} \le \Delta_\text{off},\\
+b_i, & \text{otherwise},
+\end{cases}
+\label{eq:passive_rule}
+\end{equation}
+and active balancing runs while the spread $\sigma=\max_i v_i-\min_i v_i$ exceeds $\Delta_\text{on}$ and stops at
+$\sigma\le\Delta_\text{off}$, with $\Delta_\text{on}=15$\,mV and $\Delta_\text{off}=10$\,mV (60 and 40 ADC steps).
+
+\begin{figure}[t]
+\centering
+\figslot{flowchart.png}{0.92\columnwidth}{8cm}{Controller flowchart}
+\caption{Controller flowchart, executed once per second.}
+\label{fig:flow}
+\end{figure}
+
+\section{Calibration}
+\label{sec:cal}
+Each cell is measured with a multimeter at its terminals while the BMS is in OFF mode, and compared with the mean
+of ten logged readings. The error $e_i=v_i^\text{BMS}-v_i^\text{DMM}$ quantifies the measurement error; a gain
+$g_i=v_i^\text{DMM}/v_i^\text{BMS}$ (one point) or a gain and offset (two or more points) is entered in the
+firmware and the error is measured again. Cells 3 and 4 are differences of node voltages near 12--16\,V, so 1\,\%
+divider tolerance alone can cause tens of millivolts of error.
+
+Table~\ref{tab:cal} lists the result. Before calibration the errors were $-36$, $+33$, $-48$ and $+45$\,mV
+(0.9--1.2\,\%, 41\,mV RMS), consistent with 1\,\% resistors; after the gains were applied every channel read
+within $\pm1$\,mV of the multimeter, which is at the level of the meter's own resolution. The runs in
+Section~\ref{sec:hw} were logged with unity gains. Applying Table~\ref{tab:cal} to them changes each change of a
+single cell by only about 1\,\%, but shifts the absolute spreads by $-9$ to $+83$\,mV; spread values quoted
+below are therefore uncalibrated, while per-cell changes are unaffected.
+
+\begin{table}[t]
+\caption{Calibration against a multimeter (offsets $\le2$\,mV)}
+\label{tab:cal}
+\centering
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Cell & DMM [V] & BMS [V] & Error [mV] & Gain & After [mV] \\
+\midrule
+1 & 3.851 & 3.815 & $-36$ & 1.0094 & $-1$ \\
+2 & 3.852 & 3.885 & $+33$ & 0.9915 & $+1$ \\
+3 & 3.849 & 3.801 & $-48$ & 1.0126 & $-1$ \\
+4 & 3.850 & 3.895 & $+45$ & 0.9884 & $+1$ \\
+\midrule
+\multicolumn{3}{@{}l}{RMS error} & 41.0 & & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Estimated Balancing Time}
+\label{sec:est}
+Converting rested voltages to SOC with the OCV table, $s_i=V_\text{oc}^{-1}(v_i)$, passive balancing must remove
+\begin{equation}
+\Delta Q_i = (s_i - s_\text{min})\,C_n
+\label{eq:dq}
+\end{equation}
+from cell $i$; with bleeding active a fraction $d_p=10/15$ of the time, the highest cell sets the time,
+\begin{equation}
+t_p \approx \frac{\max_i \Delta Q_i}{I_b\,d_p}.
+\label{eq:tp}
+\end{equation}
+Charge is conserved in active balancing, so with equal capacities the cells converge to the mean SOC:
+\begin{equation}
+V_\infty^{\text{act}} = V_\text{oc}\!\left(\tfrac14\textstyle\sum_i s_i\right), \qquad
+V_\infty^{\text{pas}} = V_\text{oc}(s_\text{min}).
+\label{eq:vfinal}
+\end{equation}
+The active time was obtained by integrating \eqref{eq:cell} and \eqref{eq:ipair} for the three pairs with the
+30\,s/5\,s cycle until $\sigma\le10$\,mV. For the pack at 4.063/4.009/3.840/3.960\,V (about 93/90/78/87\,\% SOC,
+$C_n=2.6$\,Ah), \eqref{eq:dq} gives 0.395/0.324/0/0.234\,Ah, \eqref{eq:tp} gives 7.0\,h (6.7\,h by integration,
+3.5\,Wh dissipated), and \eqref{eq:vfinal} gives 3.840\,V for passive and 3.962\,V for active balancing.
+Table~\ref{tab:est} lists the options.
+
+\begin{table}[t]
+\caption{Estimated time to balance the pack ($\sigma\le10$\,mV)}
+\label{tab:est}
+\centering
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Configuration & $R_\text{eq}$ [$\Omega$] & Time \\
+\midrule
+Passive, 47\,$\Omega$, 10\,s/5\,s & -- & 6.7\,h \\
+\midrule
+Relays, 470\,$\mu$F, 4.7\,$\Omega$ (built) & 2728 & 26\,700\,h \\
+Relays, 4$\times$470\,$\mu$F & 682 & 6\,670\,h \\
+MOSFET 100\,Hz, 470\,$\mu$F, 4.7\,$\Omega$ & 27.0 & 264\,h \\
+MOSFET 1\,kHz, 470\,$\mu$F, 4.7\,$\Omega$ & 20.1 & 196\,h \\
+MOSFET 1\,kHz, 4$\times$470\,$\mu$F & 5.02 & 49\,h \\
+MOSFET 1\,kHz, 470\,$\mu$F, 0.4\,$\Omega$ & 2.49 & 24\,h \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Hardware Results}
+\label{sec:hw}
+Table~\ref{tab:runs} lists the recorded runs. Readings were selected by three fixed rules, applied identically to
+every cell and run: (i) only rested rows (all outputs off for at least 3\,s, status OK); (ii) a rested reading more
+than 3\,mV from the median of its seven neighbours is discarded, since bleeding moves a cell by only about
+0.2\,mV per 15\,s cycle; (iii) a cell whose noise exceeds 1\,mV or whose 1\,min rate of change exceeds
+10\,mV/min is marked contact-affected and not used for conclusions. Real cells changed by at most 3.3\,mV/min
+(polarisation when bleeding starts), whereas the intermittent contact on cells 3 and 4 produced 19--44\,mV/min.
+Readings taken while outputs are on are shifted and are used only to characterise that shift.
+
+\begin{table}[t]
+\caption{Hardware runs}
+\label{tab:runs}
+\centering
+\small
+\begin{tabular}{@{}clcl@{}}
+\toprule
+Run & Mode, capacitor & Duration & Events \\
+\midrule
+1 & active, 470\,$\mu$F & 93.6\,min & open sense wire (FAULT) \\
+2 & active, 1\,$\mu$F & 2.7\,min & none \\
+3 & active, 470\,$\mu$F & 53.5\,min & cell-4 contact (WARN) \\
+4 & passive, 47\,$\Omega$ & 35.6\,min & cell-4 contact (WARN) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fault detection: open sense wire}
+In run~1, 93 rows between 6 and 28\,min were flagged FAULT (Fig.~\ref{fig:hwv}). Cell~4 read $-8.192$\,V,
+the negative full scale ($-2.048\,\text{V}\times4$) of $A2-A3$, which identifies an open lead on the pack-top
+node, and one temperature sensor failed. After the lead was re-seated no fault occurred. Later intermittent dips
+of cell~4 (to 3.06\,V in run~3 and 3.71\,V in run~4) were caught by the jump warning, and in run~3 the
+low-voltage check ended the RUN phase within one second.
+
+\begin{figure*}[t]
+\centering
+\figslot{hw_run1_voltages.png}{0.85\textwidth}{6cm}{Hardware run 1 cell voltages}
+\caption{Run 1: cell voltages; the shaded interval is the open sense wire.}
+\label{fig:hwv}
+\end{figure*}
+
+\subsection{Passive balancing}
+Run~4 lasted 35.6\,min. Following \eqref{eq:passive_rule}, the controller bled cells 1 and 2 almost
+throughout and cells 3 and 4 only while they were more than 15\,mV above the lowest
+(Fig.~\ref{fig:hwpasout}). Cells 1 and 2 passed all selection rules (noise 0.30 and 0.25\,mV); cells 3 and 4 were
+contact-affected. With $I_b=v_i/47\,\Omega$, the log gives 34.0 and 29.8\,mAh bled from cells 1 and 2
+(Fig.~\ref{fig:hwcharge}, Table~\ref{tab:pas}) and 0.311\,Wh dissipated in total. Their rested voltages fell
+steadily by 14.1 and 23.1\,mV (Fig.~\ref{fig:hwpas}). Through the OCV table the removed charge corresponds to 26
+and 15\,mV, 41\,mV together, against 37\,mV measured; the split between the two cells differs because the OCV
+table is generic and cell~1 was still recovering from an earlier drain (it rose by 17.6\,mV in run~3). Cell
+temperatures stayed between 16.6 and 17.3\,$^\circ$C; the resistor temperature was not measured. Balancing was not
+completed: 36\,min is short compared with the 6.7\,h estimate.
+
+\begin{table}[t]
+\caption{Passive run (run 4, 35.6 min)}
+\label{tab:pas}
+\centering
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Cell & On [min] & $\Delta Q$ [mAh] & $E$ [Wh] & $\Delta V$ [mV] & Exp. [mV] \\
+\midrule
+1 & 23.7 & 34.0 & 0.137 & $-14.1$ & $-26$ \\
+2 & 21.5 & 29.8 & 0.116 & $-23.1$ & $-15$ \\
+3 & 2.0 & 2.8 & 0.011 & \multicolumn{2}{c}{contact-affected} \\
+4 & 8.5 & 11.8 & 0.046 & \multicolumn{2}{c}{contact-affected} \\
+\midrule
+Total & & 78.3 & 0.311 & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figslot{hw_run4_passive_outputs.png}{\columnwidth}{4.5cm}{Passive run: mode and bleed outputs}
+\caption{Run 4: bleed relays selected by the controller.}
+\label{fig:hwpasout}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\figslot{hw_run4_clean_change.png}{\columnwidth}{4.5cm}{Passive run: rested change of each cell, selected readings}
+\caption{Run 4: change of the rested cell voltages after the selection rules. Cells 1 and 2 fall steadily;
+cells 3 and 4 (faded) are contact-affected.}
+\label{fig:hwpas}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\figslot{hw_run4_clean_charge.png}{\columnwidth}{4.2cm}{Passive run: cumulative charge bled}
+\caption{Run 4: cumulative charge bled from each cell.}
+\label{fig:hwcharge}
+\end{figure}
+
+\subsection{Active balancing}
+Over the stable hour of run~1 the spread went from 223.3 to 225.5\,mV, and over run~3 (93 cycles, 2652 shuttles)
+from 185.3 to 187.6\,mV; the reliable cells 1 and 2 rose by 17.6 and 4.2\,mV instead of moving towards
+the lower cells (Fig.~\ref{fig:hwr3}). Applying \eqref{eq:req} with $C=470\,\mu$F and $R=4.8\,\Omega$
+gives $R_\text{eq}=2.7$\,k$\Omega$ for run~1 ($f=0.78$\,Hz) and 2.1\,k$\Omega$ for run~3 ($f=1$\,Hz), and
+\eqref{eq:ipair} gives 20--60\,$\mu$A per pair, about 0.002\,\% SOC per hour, below one ADC step per hour. The
+capacitors did switch: a multimeter showed each between its two cell voltages, and in run~1 cells 1 and 2 showed a
+$-2.3/+1.1$\,mV step at every transition from RUN to REST. Replacing the capacitors with 1\,$\mu$F (run~2) removed
+this step ($<0.05$\,mV), confirming its origin. Run~2 also serves as the monitoring-only reference, since its
+transfer current is about 0.1\,$\mu$A.
+
+\begin{figure}[t]
+\centering
+\figslot{hw_run3_clean_change.png}{\columnwidth}{4.5cm}{Run 3: rested change of each cell, selected readings}
+\caption{Run 3: change of the rested cell voltages during active balancing after the selection rules.}
+\label{fig:hwr3}
+\end{figure}
+
+\subsection{Measurement shifts during RUN}
+While outputs are on, the cell-1 reading is shifted by 226\,mV with the capacitor relays (run~3) and by 351\,mV
+with the bleed relays (run~4); cells 2 and 4 shift by 132 and 73\,mV during bleeding (Fig.~\ref{fig:hwraw}).
+These shifts are far larger than the cell drop $I_bR_0\approx3$\,mV and appear as soon as the relays switch, so
+they are attributed to relay-coil and bleed currents flowing in wiring shared with the measurement, in particular
+the ground of the single-ended cell-1 channel. Because decisions use only rested readings, the controller is
+unaffected.
+
+\begin{figure}[t]
+\centering
+\figslot{hw_run3_raw_voltages.png}{\columnwidth}{4.5cm}{Run 3 every row, showing the RUN shift}
+\caption{Run 3, every row: cell~1 reads 226\,mV low while the relays shuttle.}
+\label{fig:hwraw}
+\end{figure}
+
+\subsection{Comparison}
+Table~\ref{tab:cmp} compares the cases on hardware.
+
+\begin{table}[t]
+\caption{Comparison on hardware}
+\label{tab:cmp}
+\centering
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Metric & Reference & Passive & Active \\
+ & (run 2) & (run 4) & (run 3) \\
+\midrule
+Duration [min] & 2.7 & 35.6 & 53.5 \\
+$\Delta V_1$ / $\Delta V_2$ [mV] & 0 / 0 & $-14.1$ / $-23.1$ & $+17.6^{\ast}$ / $+4.2$ \\
+Charge moved [mAh] & -- & 78.3 & $\approx0.05$ \\
+Energy [Wh] & 0 & 0.311 & $<10^{-4}$ \\
+Peak cell $T$ [$^\circ$C] & -- & 17.3 & 17.9 \\
+Est. time to balance & -- & 6.7\,h & 26\,700\,h \\
+\bottomrule
+\multicolumn{4}{@{}l}{\footnotesize $^{\ast}$likely recovery of cell 1, which had been drained before the run}
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+\label{sec:disc}
+\textbf{Passive balancing works as designed.} The controller chose the right cells, the bleed current matched
+\eqref{eq:bleed}, and the combined rested fall of cells 1 and 2 (37\,mV) matched the 41\,mV expected from the
+removed charge. Completing the balance needs a
+run of about 7\,h; a 22\,$\Omega$ resistor would halve this at about 0.75\,W per resistor.
+
+\textbf{Switching rate sets active performance.} By \eqref{eq:req}, a capacitor stage moves charge in proportion
+to $fC$ until the loop resistance dominates. The simulated stage used $fC=4.4$\,F/s; the relay stage has
+$fC\approx4.7\times10^{-4}$\,F/s, about 9\,000 times less. Replacing each relay by a logic-level MOSFET half-bridge
+(an N/P pair across each cell, gates driven through digital isolators powered by that cell, Timer1 generating both
+phases with dead time) at 1\,kHz brings the time to 24--196\,h with the existing capacitors (Table~\ref{tab:est}).
+A fuse in every cell tap is then required, because simultaneous conduction shorts a cell. The 4.7\,$\Omega$
+resistors cap such a stage at about 8\,mA on a 168\,mV pair, so a lower loop resistance with a precharge step is
+needed for faster balancing.
+
+\textbf{Divider loading.} Each 44\,k$\Omega$ divider runs from its node to ground, so cell~$i$ supplies the
+dividers $j\ge i$,
+\begin{equation}
+I_{\text{drain},i}=\sum_{j\ge i}\frac{V_{\text{node},j}}{R_\text{top}+R_\text{bot}},
+\label{eq:drain}
+\end{equation}
+which is 0.90/0.81/0.63/0.36\,mA for cells 1--4: the difference exceeds the transfer of the relay stage by an
+order of magnitude.
+
+\textbf{Wiring.} The intermittent cell-4 contact and the RUN shifts both come from wiring. Separate sense and
+current-carrying wires (Kelvin connections), a separate supply and ground return for the relay coils, and
+soldered connections would remove both.
+
+\section{Limitations and Uncertainty}
+\begin{itemize}
+\item The runs were logged before the calibration gains were applied (Section~\ref{sec:cal}); absolute spreads
+are uncertain by up to about 80\,mV, while changes of one cell over a run are resolved to about 0.5\,mV and are
+affected by only 1\,\%. Calibration used a single point near 3.85\,V per cell.
+\item No capacitor test emulator was used before the cells were connected.
+\item The passive run lasted 36\,min, far shorter than the 6.7\,h needed to balance; no repeat runs and no
+dedicated no-balancing run of equal length were recorded, so repeatability is not quantified.
+\item The intermittent cell-4 / node-A3 contact affects cells 3 and 4 in runs 1, 3 and 4; their readings were
+excluded by the selection rules, so conclusions rest on cells 1 and 2.
+\item The OCV table is generic, so SOC values and time estimates are approximate; bleed currents are inferred from
+voltage and the nominal 47\,$\Omega$, not measured directly; resistor temperature was not measured.
+\item The active stage was built only with relays; the MOSFET stage is designed but not built.
+\end{itemize}
+
+\section{Conclusion}
+A single Arduino controller provides monitoring, passive and active balancing, alerts, latched faults and a manual
+stop; its fault and warning logic caught a real open sense wire and later intermittent contacts, and calibration
+against a multimeter brought the measurement error from up to 48\,mV to $\pm1$\,mV. Simulation
+predicted that both methods balance the pack, active balancing faster and nearly losslessly. On hardware, passive
+balancing behaved as designed: the controller selected the high cells, and the measured voltage fall of the two highest cells matched the 64\,mAh removed at about 85\,mA, with
+0.31\,Wh dissipated in 36\,min and no measurable heating. The
+relay-switched 470\,$\mu$F ladder moved only microamperes because it switches about once per second, in agreement
+with the averaged model. The same model and the measured voltages give 6.7\,h for full passive balancing and
+24--196\,h for a 1\,kHz MOSFET version of the active stage, which is the main improvement needed for active
+balancing to be competitive.
+
+\section*{Code and Data Availability}
+The Arduino firmware, MATLAB/Simulink models, Python analysis scripts, raw serial logs, calibration data,
+schematics and all graphs are available at \url{https://github.com/highdreameater/EE-302-Control-sys-proj}.
+
+\begin{thebibliography}{10}
+
+\bibitem{daowd2011}
+M.~Daowd, N.~Omar, P.~Van Den Bossche, and J.~Van Mierlo, ``Passive and active battery balancing comparison based
+on MATLAB simulation,'' in \emph{Proc. IEEE Vehicle Power Propulsion Conf. (VPPC)}, Chicago, IL, 2011, pp.~1--7.
+
+\bibitem{seeman2008}
+M.~D. Seeman and S.~R. Sanders, ``Analysis and optimization of switched-capacitor DC--DC converters,''
+\emph{IEEE Trans. Power Electron.}, vol.~23, no.~2, pp.~841--851, Mar. 2008.
+
+\bibitem{pascual1997}
+C.~Pascual and P.~T. Krein, ``Switched capacitor system for automatic series battery equalization,'' in
+\emph{Proc. IEEE Appl. Power Electron. Conf. (APEC)}, Atlanta, GA, 1997, vol.~2, pp.~848--854.
+
+\bibitem{gallardo2014}
+J.~Gallardo-Lozano, E.~Romero-Cadaval, M.~I. Milan\'es-Montero, and M.~A. Guerrero-Mart\'inez, ``Battery
+equalization active methods,'' \emph{J. Power Sources}, vol.~246, pp.~934--949, 2014.
+
+\bibitem{benyaakov2012}
+S.~Ben-Yaakov, ``Behavioral average modeling and equivalent circuit simulation of switched capacitors
+converters,'' \emph{IEEE Trans. Power Electron.}, vol.~27, no.~2, pp.~632--636, Feb. 2012.
+
+\bibitem{plett2015}
+G.~L. Plett, \emph{Battery Management Systems}, vols. I and II. Norwood, MA: Artech House, 2015.
+
+\bibitem{ads1115}
+Texas Instruments, \emph{ADS111x Ultra-Small, Low-Power, I$^2$C-Compatible, 16-Bit ADCs}, datasheet.
+
+\bibitem{lim2025}
+W.~C. Lim, L.~Siek, and E.~L. Tan, ``Adaptive hybrid switched-capacitor cell balancing for 4-cell Li-ion battery
+pack with a study of pulse-frequency modulation control,'' \emph{J. Low Power Electron. Appl.}, vol.~15, no.~4,
+art.~61, 2025.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,17 @@
+Log file: /Users/highdreameater/Downloads/Research_Paper/actual_hardware_results/run1_relay_470uF/bms_logs.txt
+Rows: 4399   FAULT rows: 93   last FAULT at 1685 s (28.1 min)
+Rows with impossible sensor values: 94 (cell 4 = -8.192 V: 11, T4 = 25.00: 77)
+Rows analysed: 2798 spanning 59.6 min, faults after fix: 0
+Stable window used for balancing analysis starts 360 s after the last FAULT
+Glitch samples (>5 mV from 60 s median) after the fix, status OK: cell1=69, cell2=55, cell3=0, cell4=56; last at 50.0 min
+Sample period: median 1281 ms, max 1283 ms
+
+Mean voltages [V]           cell1    cell2    cell3    cell4   spread[mV]
+  before fault          4.0639   4.0101   3.8416   3.9596    222.3
+  first 5 min analysed  4.0646   4.0091   3.8413   3.9578    223.3
+  last 5 min            4.0655   4.0093   3.8401   3.9589    225.5
+
+RUN->REST step [mV]          cell1  cell2  cell3  cell4
+  Before fault             -0.65  +0.25  -0.08  -0.04
+  Loose-wire period       -11.16 +10.64  +0.00  -4.89
+  Stable after fix         -2.25  +1.08  -0.07  -0.07

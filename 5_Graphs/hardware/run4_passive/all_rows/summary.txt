@@ -1,0 +1,23 @@
+Log file: actual_hardware_results/run4_passive/bms_passive_full.txt
+Rows: 2136   FAULT rows: 0   last FAULT at -1 s (-0.0 min)
+Rows with impossible sensor values: 0 (cell 4 = -8.192 V: 0, T4 = 25.00: 0)
+Rows analysed: 2136 spanning 35.6 min, faults after fix: 0
+Stable window used for balancing analysis starts 0 s after the last FAULT
+Glitch samples (>5 mV from 60 s median) after the fix, status OK: cell1=835, cell2=745, cell3=815, cell4=585; last at 35.6 min
+Sample period: median 1000 ms, max 1001 ms
+
+Mean voltages [V]           cell1    cell2    cell3    cell4   spread[mV]
+  before fault          3.8388   3.8185   3.8805   3.8703    178.9
+  first 5 min analysed  3.8357   3.8258   3.8787   3.8769    170.0
+  last 5 min            3.9406   3.8084   3.8871   3.8848    199.9
+
+RUN->REST step [mV]          cell1  cell2  cell3  cell4
+  Passive                 +313.37 +129.38  -4.85 +44.33
+
+Passive bleeding (current = last rested cell voltage / R_BLEED)
+  cell  R [ohm]  on-time [min]  mean I [mA]  charge [mAh]  energy [Wh]
+     1     47.0           23.7         86.1         33.97        0.137
+     2     47.0           21.5         83.1         29.78        0.116
+     3     47.0            2.0         82.6          2.75        0.011
+     4     47.0            8.5         83.4         11.82        0.046
+  total energy dissipated: 0.311 Wh;  peak temperature: 17.25 C

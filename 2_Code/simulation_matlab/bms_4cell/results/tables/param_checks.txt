@@ -1,0 +1,3 @@
+cell:
+  emulator:
+  INFO:    SC pair would start at 0.71 A; burst gating limits it to 0.50 A

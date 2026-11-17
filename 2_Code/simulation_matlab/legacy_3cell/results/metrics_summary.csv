@@ -1,0 +1,13 @@
+Metric,Value
+Total energy lost (Wh),23.9584046875602
+Loss vs full-pack energy (%),8.01579394026984
+Loss vs stored energy at t0 (%),11.234155709607
+Balancing time (h),46.7638888888889
+Initial SOC spread (%),15
+Final SOC spread (%),0.799937245071636
+Usable capacity before (Ah),22.95
+Usable capacity after (Ah),26.7840169438307
+Usable capacity gain (%),16.7059561822687
+Average bleed current (mA),80.8284867419375
+Dischargeable charge before (Ah),17.55
+Dischargeable charge after (Ah),17.5497911210004

@@ -1,0 +1,15 @@
+Log file: actual_hardware_results/run4_passive/bms_passive_full.txt
+Rows: 422   FAULT rows: 0   last FAULT at -1 s (-0.0 min)
+Rows with impossible sensor values: 0 (cell 4 = -8.192 V: 0, T4 = 25.00: 0)
+Rows analysed: 422 spanning 35.6 min, faults after fix: 0
+Stable window used for balancing analysis starts 0 s after the last FAULT
+Glitch samples (>5 mV from 60 s median) after the fix, status OK: cell1=0, cell2=0, cell3=0, cell4=11; last at 35.1 min
+Sample period: median 1000 ms, max 16000 ms
+
+Mean voltages [V]           cell1    cell2    cell3    cell4   spread[mV]
+  before fault          4.0474   3.9047   3.8772   3.8996    172.3
+  first 5 min analysed  4.0541   3.9151   3.8803   3.8744    182.7
+  last 5 min            4.0454   3.8974   3.8880   3.8860    163.8
+
+RUN->REST step [mV]          cell1  cell2  cell3  cell4
+  Passive                   +nan   +nan   +nan   +nan

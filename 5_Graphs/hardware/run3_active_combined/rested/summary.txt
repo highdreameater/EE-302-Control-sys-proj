@@ -1,0 +1,15 @@
+Log file: actual_hardware_results/run3_active_combined/bms_output_vitthal.txt
+Rows: 279   FAULT rows: 0   last FAULT at -1 s (-0.0 min)
+Rows with impossible sensor values: 0 (cell 4 = -8.192 V: 0, T4 = 25.00: 0)
+Rows analysed: 279 spanning 53.3 min, faults after fix: 0
+Stable window used for balancing analysis starts 0 s after the last FAULT
+Glitch samples (>5 mV from 60 s median) after the fix, status OK: cell1=0, cell2=0, cell3=0, cell4=0
+Sample period: median 1000 ms, max 40001 ms
+
+Mean voltages [V]           cell1    cell2    cell3    cell4   spread[mV]
+  before fault          4.0486   3.9180   3.8701   3.9172    178.5
+  first 5 min analysed  4.0394   3.9158   3.8513   3.9338    188.2
+  last 5 min            4.0531   3.9193   3.8691   3.9187    184.0
+
+RUN->REST step [mV]          cell1  cell2  cell3  cell4
+  Active                    +nan   +nan   +nan   +nan

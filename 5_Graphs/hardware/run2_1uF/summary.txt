@@ -1,0 +1,15 @@
+Log file: actual_hardware_results/run2_1uF/bms_logs_1uF.txt
+Rows: 128   FAULT rows: 0   last FAULT at -1 s (-0.0 min)
+Rows with impossible sensor values: 0 (cell 4 = -8.192 V: 0, T4 = 25.00: 0)
+Rows analysed: 128 spanning 2.7 min, faults after fix: 0
+Stable window used for balancing analysis starts 0 s after the last FAULT
+Glitch samples (>5 mV from 60 s median) after the fix, status OK: cell1=0, cell2=0, cell3=0, cell4=0
+Sample period: median 1281 ms, max 1282 ms
+
+Mean voltages [V]           cell1    cell2    cell3    cell4   spread[mV]
+  before fault          4.0634   4.0090   3.8396   3.9595    223.8
+  first 5 min analysed  4.0634   4.0090   3.8396   3.9595    223.8
+  last 5 min            4.0634   4.0090   3.8396   3.9595    223.8
+
+RUN->REST step [mV]          cell1  cell2  cell3  cell4
+  Whole log                +0.00  +0.00  +0.00  +0.00
